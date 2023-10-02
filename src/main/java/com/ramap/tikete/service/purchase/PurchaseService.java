@@ -31,7 +31,7 @@ import lombok.extern.slf4j.Slf4j;
 public class PurchaseService {
 	@Autowired
 	CustomerTicketMapRepository ctmapRepo;
-	
+
 	@Autowired
 	CustomerTrxRepository ctrxRepo;
 
@@ -40,13 +40,13 @@ public class PurchaseService {
 
 	@Autowired
 	EventMasterRepository eventMasterRepo;
-	
+
 	Date datenow = new Date();
 	Timestamp ts = new Timestamp(datenow.getTime());
-	
+
 	@Autowired
 	private KafkaSender kafkaSender;
-	
+
 	@Transactional
 	public DataAddResponse saveOrder(PurchaseReq req) {
 		CustomerTicketMap custTicketMap = new CustomerTicketMap();
@@ -56,13 +56,13 @@ public class PurchaseService {
 		EventMaster eventMaster = new EventMaster();
 		Integer countRemaining = 0;
 		long paymentAmount = 0;
-		
+
 		try {
 			csMaster = csmasterRepo.getCustomerByIdNo(req.getCustomerIdNo());
 			eventMaster = eventMasterRepo.getEventById(req.getEventIdNo());
 			countRemaining = eventMaster.getCount() - req.getReservationCount();
 			paymentAmount = eventMaster.getPrice() * req.getReservationCount();
-			if(countRemaining > 0) {
+			if (countRemaining > 0) {
 				trx.setIdCustomer(req.getCustomerIdNo());
 				trx.setPaymentDetails(null);
 				trx.setPaymentStatus(null);
@@ -70,7 +70,7 @@ public class PurchaseService {
 				trx.setActive(true);
 				trx.setCreatedDate(datenow);
 				ctrxRepo.saveAndFlush(trx);
-				
+
 				custTicketMap.setIdEvent(req.getEventIdNo());
 				custTicketMap.setIdCustomer(req.getCustomerIdNo());
 				custTicketMap.setTicketCount(req.getReservationCount());
@@ -78,27 +78,27 @@ public class PurchaseService {
 				custTicketMap.setActive(true);
 				custTicketMap.setCreatedDate(ts);
 				ctmapRepo.saveAndFlush(custTicketMap);
-				
+
 				eventMaster.setCount(countRemaining);
 				eventMaster.setUpdatedBy("admin");
 				eventMaster.setUpdatedDate(ts);
 				eventMasterRepo.saveAndFlush(eventMaster);
-				
+
 				result.setMessage("Success save trx and maptrx");
-				result.setStatus("OK");		
-			}else {
+				result.setStatus("OK");
+			} else {
 				result.setMessage("Ticket is empty");
-				result.setStatus("empty");	
+				result.setStatus("empty");
 			}
-		}catch (Exception e) {
+		} catch (Exception e) {
 			e.printStackTrace();
-			
+
 			result.setMessage("Failed save trx and maptrx");
-			result.setStatus("Failed");			
+			result.setStatus("Failed");
 		}
 		return result;
 	}
-	
+
 	public DataAddResponse getPaymentDetails(long id) {
 		CustomerTicketMap custTicketMap = new CustomerTicketMap();
 		CustomerTrx trx = null;
@@ -108,27 +108,28 @@ public class PurchaseService {
 		try {
 			trx = ctrxRepo.getTrxById(id);
 			custTicketMap = ctmapRepo.getCustomerTicketByPaymentId(trx.getId());
-			if(trx!=null) {
+			if (trx != null && custTicketMap != null) {
+				paymentDetail = new PaymentDetailsRes();
 				paymentDetail.setPaymentStatus(trx.getPaymentStatus());
 				paymentDetail.setEventId(custTicketMap.getIdEvent());
 				paymentDetail.setUserid(trx.getIdCustomer());
-				
+
 				result.setData(paymentDetail);
 				result.setMessage("Success get payment detail");
-				result.setStatus("OK");		
-			}else {
+				result.setStatus("OK");
+			} else {
 				result.setMessage("Payment details not found.");
-				result.setStatus("OK");		
+				result.setStatus("OK");
 			}
-		}catch (Exception e) {
+		} catch (Exception e) {
 			e.printStackTrace();
-			
+
 			result.setMessage("Failed save payment");
-			result.setStatus("Failed");		
+			result.setStatus("Failed");
 		}
-		return null;
+		return result;
 	}
-	
+
 	public DataAddResponse updatePayment(PaymentUpdateReq req) {
 		CustomerTicketMap custTicketMap = new CustomerTicketMap();
 		CustomerTrx trx = null;
@@ -136,43 +137,44 @@ public class PurchaseService {
 
 		try {
 			trx = ctrxRepo.getTrxById(req.getPaymentId());
-			if(trx!=null) {
+			if (trx != null && custTicketMap!=null) {
 				trx.setPaymentAmount(req.getPaymentAmount());
 				trx.setPaymentDetails(req.getDetails());
 				trx.setPaymentStatus(req.getPaymentStatus());
+				trx.setUpdatedDate(ts);
 				ctrxRepo.saveAndFlush(trx);
 				
-				result.setMessage("Success save payment");
-				result.setStatus("OK");		
-			}else {
+				result.setMessage("Success update payment");
+				result.setStatus("OK");
+			} else {
 				result.setMessage("Payment details not found.");
-				result.setStatus("OK");		
+				result.setStatus("OK");
 			}
-		}catch (Exception e) {
+		} catch (Exception e) {
 			e.printStackTrace();
-			
-			result.setMessage("Failed save payment");
-			result.setStatus("Failed");		
+
+			result.setMessage("Failed update payment");
+			result.setStatus("Failed");
 		}
-		return null;
+		return result;
 	}
-	
+
 	public DataAddResponse createOrder(PurchaseReq req) {
 		DataAddResponse result = new DataAddResponse();
 
 		kafkaSender.sendMessage("purchase-queue", req);
-		
+
 		result.setMessage("Order queue created");
-		result.setStatus("OK");		
+		result.setStatus("OK");
 		return result;
 	}
 
 	@KafkaListener(topics = "purchase-queue", groupId = "myGroup")
 	void listener(PurchaseReq message) throws URISyntaxException {
-		log.info("Listener CREATE ORDER "	 + message);
+		log.info("Listener CREATE ORDER " + message);
 		System.out.println(message);
 		DataAddResponse saveOrder = saveOrder(message);
-		
-		log.info("Save order response "+saveOrder);
+
+		log.info("Save order response " + saveOrder);
 	}
 }
